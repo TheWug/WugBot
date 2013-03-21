@@ -32,9 +32,9 @@ Config file structure
 ======
 The following is a short example of the configuration format.
 
-#comment
-[Section]
-Name=Value
+	#comment
+	[Section]
+	Name=Value
 
 The minimum needed to get the program running is not yet known.  Once I have decided
 what it should be, I'll update this.

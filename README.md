@@ -1,0 +1,4 @@
+WugBot
+======
+
+IRC Bot

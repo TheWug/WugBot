@@ -67,5 +67,8 @@ specified in the config file, the value shown here will be used).
 	nickserv_password=		// bot's nickserv password.  If blank, no NS login will occur.
 	nickserv_username=		// bot's nickserv name.  If blank, no NS login will occur.
 	
+	nickserv_identify_command=NS IDENTIFY %u %p 
+	// nickserv authentication protocol. %u and %p are replaced with username and password.
+	
 	authmode=NETWORKS.authmode	// the authentication method to use on this network.
 	ssl=0				// not yet supported; specify "1" to connect over SSL.

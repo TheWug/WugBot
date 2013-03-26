@@ -5,11 +5,20 @@
 #include <errno.h>
 #include <cstring>
 
+#include "Properties.h"
 #include "EventHandler.h"
 #include "NetInterface.h"
 #include "CommonEvents.h"
 #include "StringUtil.h"
 #include "BotCore.h"
+
+NetManager::NetBlob::NetBlob()
+{
+	iface = NULL;
+	readbuffer = new char[1024];
+	datasize = 0;
+	bufsize = 1024;
+}
 
 NetManager::ReadThreadState::ReadThreadState(NetManager * parent)
 {
@@ -36,6 +45,7 @@ NetManager::WriteThreadState::WriteThreadState(NetManager * parent)
 
 NetManager::NetManager(BotCore& b) : bot(b), readstate(this), writestate(this)
 {
+	nextavail = 0;
 	return;
 }
 
@@ -54,6 +64,7 @@ void NetManager::Start()
 	writestate.running = true;
 	pthread_create(&readstate.readthread, NULL, DoReadService, this);
 	pthread_create(&writestate.writethread, NULL, DoWriteService, this);
+	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "NetManager::Start: network manager ready.");
 	return;
 }
 
@@ -65,6 +76,7 @@ void NetManager::Stop()
 	UnpauseReadWrite();
 	pthread_join(readstate.readthread, NULL);
 	pthread_join(writestate.writethread, NULL);
+	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "NetManager::Stop: network manager shutdown.");
 	return;
 }
 
@@ -83,7 +95,7 @@ void NetManager::ReadService()
 	char dummy;
 
 	// loop section
-	while (true)
+	while (readstate.running)
 	{
 		// block section
 		CompileReadPollList(); // stores data in readstate.polllist
@@ -125,11 +137,11 @@ void NetManager::ReadIncomingData(int index)
 		EventHandler::Event e;
 		e.name = CommonEvents::NET_RECV;
 		e.timestamp = blob.ts;
-		e.data.push_back(blob.netname);
-		e.data.push_back(line);
+		e.data.push_back(blob.outerindex);
+		e.data.push_back(StringUtil::StripWS(line));
 		bot.BotEvents().Raise(e);
 		start = end + 1;
-		end = strchr(blob.readbuffer, '\n');
+		end = strchr(start, '\n');
 		blob.ts = BotTime::GetCurrentTimeMillis();
 	}
 
@@ -171,7 +183,7 @@ void NetManager::CompileReadPollList()
 int NetManager::WaitForRead()
 {
 	int i = poll(&readstate.polllist[0], readstate.polllist.size(), -1);
-	if (i < 0) bot.BotLog().GetLog(BotLogger::SYS).Put(ERROR, "NetManager::WaitForRead: poll() failed.  Why did poll() fail? (errno: " + StringUtil::FromInt32(errno) + ")");
+	if (i < 0) bot.BotLog().GetLog(BotLogger::DBG).Put(ERROR, "NetManager::WaitForRead: poll() failed.  Why did poll() fail? (errno: " + StringUtil::FromInt32(errno) + ")");
 
 	else if (i > 0)
 	{
@@ -199,7 +211,7 @@ void NetManager::WriteService()
 	// intro section
 
 	// loop section
-	while(true)
+	while(writestate.running)
 	{
 		// block section
 		--writestate.writespending;
@@ -209,6 +221,7 @@ void NetManager::WriteService()
 		if (!writestate.servicequeue.empty())
 		{
 			writestate.servicequeue.pop();
+			writestate.squeuelock.Unlock();
 			writestate.servicelock.Wait(writestate.writemutex);
 			continue;
 		}
@@ -238,9 +251,9 @@ void NetManager::WriteWaitingData() // CHANGEME - write only one data at a time
 void NetManager::SendHandler(void * s, EventHandler::Event e)
 {
 	NetManager * self = (NetManager *) s;
-	if (!StringUtil::CaseInsEquals(e.name, CommonEvents::NET_SEND))
+	if (e.name != CommonEvents::NET_SEND) // 
 	{
-		self->bot.BotLog().GetLog(BotLogger::DBG).Put(ERROR, "NetManager::SendHandler: Got an event that was not a data send! (ignored it)");
+		self->bot.BotLog().GetLog(BotLogger::DBG).Put(WARNING, "NetManager::SendHandler: Got an event that was not a data send! (ignored it)");
 		return;
 	}
 
@@ -261,7 +274,7 @@ void NetManager::AddMessageToWriteQueue(string network, string line)
 	int i = GetConnectionIndex(network);
 	if (i == -1)
 	{
-		bot.BotLog().GetLog(BotLogger::SYS).Put(ERROR, "NetManager::AddMessageToWriteQueue: tried to queue data to nonexistent network \"" + network + "\" (message dropped)");
+		bot.BotLog().GetLog(BotLogger::DBG).Put(ERROR, "NetManager::AddMessageToWriteQueue: tried to queue data to nonexistent network \"" + network + "\" (message dropped)");
 		return;
 	}
 
@@ -276,29 +289,6 @@ void NetManager::AddMessageToWriteQueue(string network, string line)
 	return;
 }
 
-string NetManager::CreateIRCLine(vector<string>& components)
-{
-	if (components.size() < 2) return "";
-	else if (components.size() == 2) return (components[1] + "\r\n");
-	else
-	{
-		string line;
-
-		for (int i = 1; i < components.size() - 1; ++i)
-		{
-			line += components[i];
-			line += " ";
-		}
-
-		line += ":";
-		line += components[components.size() - 1];
-		line += "\r\n";
-		return line;
-	}
-	bot.BotLog().GetLog(BotLogger::DBG).Put(CRITICAL, "NetManager::SendHandler: what the fucking fuck.");
-	return "";
-}
-
 int NetManager::GetConnectionIndex(string network)
 {
 	map<string, int>::iterator i = connectionindex.find(network);
@@ -306,17 +296,28 @@ int NetManager::GetConnectionIndex(string network)
 	return i->second;
 }
 
+string NetManager::GetConnectionName(string network)
+{
+	map<string, int>::iterator i = connectionindex.find(network);
+	if (i == connectionindex.end()) return "";
+	return connections[i->second]->netname;
+}
+
 void NetManager::PauseReadWrite()
 {
+	bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "NetManager::PauseReadWrite: pausing read thread...");
 	write(readstate.servicepipe_out, "\0", 1); 		// this will wake up the read loop
 	readstate.readmutex.Lock(); 	// read loop will pause itself if the service pipe has data
+	bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "NetManager::PauseReadWrite: read thread paused.");
 	// read thread is now paused
 
+	bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "NetManager::PauseReadWrite: pausing write thread...");
 	writestate.squeuelock.Lock(); 			// lock service queue
 	writestate.servicequeue.push(".");          	// add to service queue
 	writestate.squeuelock.Unlock(); 		// unlock service queue
 	++writestate.writespending;	 		// increment writes pending counter
 	writestate.writemutex.Lock(); 			// write loop will pause itself if the service queue has an entry
+	bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "NetManager::PauseReadWrite: write thread paused.");
 	// write thread is now paused
 	return;
 }
@@ -327,6 +328,7 @@ void NetManager::UnpauseReadWrite()
 	writestate.writemutex.Unlock();		// unlock the write mutex
 	readstate.servicelock.Signal(); 	// notify the signal the read thread is waiting on
 	readstate.readmutex.Unlock();	  	// unlock the read mutex
+	bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "NetManager::UnpauseReadWrite: read/write threads unpaused.");
 	return;
 }
 
@@ -335,16 +337,70 @@ void NetManager::ConnectionHandler(void * s, EventHandler::Event e)
 	NetManager * self = (NetManager *) s;
 	self->PauseReadWrite();
 
-	// do work
-	// what events should we be handling here
-	// force send message now
-	// add network to list
-	// remove network from list
-	// connect network
-	// disconnect network
-	// reconnect network
-	// list consolidate
+	if (e.name == CommonEvents::PROP_READY)
+	{
+		self->InitialAutoconnect();
+	}
 
 	self->UnpauseReadWrite();
 	return;
+}
+
+void NetManager::InitialAutoconnect()
+{
+	Properties& p = bot.BotProp();
+	vector<string> acn = p.GetProperty("autoconnect", "NETWORKS", vector<string>());
+	string net_section_prefix = "NETWORK:";
+
+	for (int i = 0; i < acn.size(); ++i)
+	{
+		string this_section = net_section_prefix + StringUtil::ToUpper(acn[i]);
+		string server_address = p.GetProperty("server", this_section, "INVALID");
+		int port = p.GetProperty("port", this_section, -1);
+		int my_real_index = connections.size();
+
+		NetBlob *newblob = new NetBlob();
+		newblob->netname = acn[i];
+		newblob->iface = new NetInterface(bot);
+		newblob->iface->BindServer(server_address, port);
+		ErrorState err = newblob->iface->Connect();
+
+		EventHandler::Event e;
+		if (err != M_SUCCESS)
+		{
+			e.data.push_back("");
+			e.data.push_back(acn[i]);
+			e.name = CommonEvents::NET_CONNECTFAIL;
+			bot.BotEvents().Raise(e);
+			delete newblob->iface;
+			delete newblob;
+		}
+		else
+		{
+			string my_index = StringUtil::FromInt32(++nextavail);
+			e.data.push_back(my_index);
+			e.data.push_back(acn[i]);
+			e.name = CommonEvents::NET_STARTED;
+			bot.BotEvents().Raise(e);
+			newblob->outerindex = my_index;
+			connectionindex[my_index] = my_real_index;
+			connections.push_back(newblob);
+		}
+	}
+}
+
+void NetManager::SubscribeToEvents()
+{
+	set<string> myevents;
+	myevents.insert(CommonEvents::BOT_SHUTDOWN);
+	myevents.insert(CommonEvents::PROP_READY);
+
+	myevents.insert(CommonEvents::NET_CONNECT);
+	myevents.insert(CommonEvents::NET_DISCONNECT);
+	myevents.insert(CommonEvents::NET_RECONNECT);
+	myevents.insert(CommonEvents::NET_FCLOSE);
+	bot.BotEvents().Subscribe(myevents, ConnectionHandler, this);
+	myevents.clear();
+	myevents.insert(CommonEvents::NET_SEND);
+	bot.BotEvents().Subscribe(myevents, SendHandler, this);
 }

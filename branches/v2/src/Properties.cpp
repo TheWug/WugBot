@@ -7,11 +7,13 @@
 #include "BotCore.h"
 #include "StringUtil.h"
 #include "VectorUtil.h"
+#include "EventHandler.h"
+#include "CommonEvents.h"
 
 Properties::Properties(string filename, BotCore& b) : bot(b)
 {
 	myfile = filename;
-	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "Properties: instantiated, bound to " + myfile);
+	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "Properties::Properties: instantiated, bound to " + myfile);
 }
 
 bool Properties::Read()
@@ -27,7 +29,7 @@ bool Properties::Read()
 	if (props.fail())
 	{
 		props.close();
-		bot.BotLog().GetLog(BotLogger::SYS).Put(CRITICAL, "Properties: UNABLE TO READ TO PROPERTIES FILE: " + myfile);
+		bot.BotLog().GetLog(BotLogger::SYS).Put(CRITICAL, "Properties::Read: unable to read properties file: " + myfile);
 		return true;
 	}
 
@@ -36,23 +38,23 @@ bool Properties::Read()
 	while (!props.eof())
 	{
 		getline(props, line);
-		bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "Properties: read line: " + line);
+		bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "Properties::Read: read line: " + line);
 		if (line.find("[") == 0 && line.find("]") == line.length() - 1)
 		{
 			section = StringUtil::ToUpper(line.substr(1, line.length() - 2));
-			bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "Properties: read section: " + section);
+			bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "Properties::Read: read section: " + section);
 		}
 		else if (line.find("=") != string::npos)
 		{
 			name = StringUtil::StripSymbols(StringUtil::ToLower(line.substr(0, line.find("="))));
 			value = line.substr(line.find("=") + 1, line.length() - name.length() - 1);
 			properties[section][name] = value;
-			bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "Properties: read value: " + section + "/" + name + "=" + value);
+			bot.BotLog().GetLog(BotLogger::DBG).Put(INFO, "Properties::Read: read value: " + section + "/" + name + "=" + value);
 		}
 	}
 	props.close();
 
-	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "Properties: read properties from " + myfile);
+	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "Properties::Read: read properties from " + myfile);
 	return false;
 }
 
@@ -65,7 +67,7 @@ bool Properties::Write()
 	if (newprops.fail())
 	{
 		newprops.close();
-		bot.BotLog().GetLog(BotLogger::SYS).Put(CRITICAL, "Properties: UNABLE TO WRITE TO PROPERTIES FILE: " + myfile);
+		bot.BotLog().GetLog(BotLogger::SYS).Put(CRITICAL, "Properties::Write: unable to write properties file: " + myfile);
 		return true;
 	}
 
@@ -81,7 +83,7 @@ bool Properties::Write()
 
 	unlink(myfile.c_str());
 	rename(tempname.c_str(), myfile.c_str());
-	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "Properties: wrote properties to " + myfile);
+	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "Properties::Write: wrote properties to " + myfile);
 	return false;
 }
 
@@ -129,24 +131,87 @@ vector<double> Properties::GetProperty(string name, string section, vector<doubl
 
 void Properties::SetProperty(string name, string section, string value)
 {
+	properties[section][name] = value;
 }
 
 void Properties::SetProperty(string name, string section, vector<string> value)
 {
+	properties[section][name] = VectorUtil::Join(value, ",");
 }
 
 void Properties::SetProperty(string name, string section, int value)
 {
+	properties[section][name] = StringUtil::FromInt32(value);
 }
 
 void Properties::SetProperty(string name, string section, vector<int> value)
 {
+	properties[section][name] = VectorUtil::Join(VectorUtil::FromInt32(value), ",");
 }
 
 void Properties::SetProperty(string name, string section, double value)
 {
+	properties[section][name] = StringUtil::FromDouble(value);
 }
 
 void Properties::SetProperty(string name, string section, vector<double> value)
 {
+	properties[section][name] = VectorUtil::Join(VectorUtil::FromDouble(value), ",");
+}
+
+void Properties::PropertyHandler(void * s, EventHandler::Event e)
+{
+	Properties * self = (Properties *) s;
+	if (e.name == CommonEvents::BOT_STARTUP)
+	{
+		e = EventHandler::Event();
+		if (self->Read())
+		{
+			e.name = CommonEvents::BOT_DIE;
+			self->bot.BotLog().GetLog(BotLogger::SYS).Put(CRITICAL, "Properties::PropertyHandler: this error is fatal during bot startup.  Aborting...");
+		}
+		else e.name = CommonEvents::PROP_READY;
+		self->bot.BotEvents().Raise(e);
+	}
+	else if (e.name == CommonEvents::BOT_SAVEALL)
+	{
+		e = EventHandler::Event();
+		e.name = CommonEvents::PROP_AGGREGATE;
+		self->bot.BotEvents().Raise(e);
+	}
+	else if (e.name == CommonEvents::PROP_AGGREGATE)
+	{
+		e = EventHandler::Event();
+		e.name = CommonEvents::PROP_SAVE;
+		self->bot.BotEvents().Raise(e);
+	}
+	else if (e.name == CommonEvents::PROP_SAVE)
+	{
+		if (1 == self->GetProperty("readonly", "GENERAL", 0))
+			self->bot.BotLog().GetLog(BotLogger::SYS).Put(WARNING, "Properties::PropertyHandler: ignoring save attempt in readonly mode.");
+		else
+			self->Write();
+		e = EventHandler::Event();
+		e.name = CommonEvents::PROP_SAVED;
+		self->bot.BotEvents().Raise(e);
+	}
+	else if (e.name == CommonEvents::PROP_LOAD)
+	{
+		self->Read();
+		e = EventHandler::Event();
+		e.name = CommonEvents::PROP_LOADED;
+		self->bot.BotEvents().Raise(e);
+	}
+	return;
+}
+
+void Properties::SubscribeToEvents()
+{
+	set<string> myevents;
+	myevents.insert(CommonEvents::BOT_STARTUP);
+	myevents.insert(CommonEvents::BOT_SAVEALL);
+	myevents.insert(CommonEvents::PROP_SAVE);
+	myevents.insert(CommonEvents::PROP_LOAD);
+	myevents.insert(CommonEvents::PROP_AGGREGATE);
+	bot.BotEvents().Subscribe(myevents, PropertyHandler, this);
 }

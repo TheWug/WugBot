@@ -3,6 +3,11 @@
 
 #include <string>
 #include <fstream>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "BotTime.h"
 
@@ -36,6 +41,8 @@ public:
 	void Notice(string message, string speaker);
 	void Irc(string message, string speaker);
 	void Put(Loglevel level, string message, mtime_t arrived = 0);
+
+	void MkDir(string dirname, struct stat *s);
 
 	static string GetLogLevel(Loglevel l);
 };

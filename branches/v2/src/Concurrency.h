@@ -37,6 +37,7 @@ public:
 
 	Semaphore& operator++ (); // post operation
 	Semaphore& operator-- (); // wait operation
+	Semaphore& operator-= (timespec& t); // timedwait operation
 
 	operator int(); // getvalue operation
 };
@@ -51,6 +52,8 @@ public:
 	~Condition();
 
 	void Wait(Mutex& mutex);
+	void TimedWait(Mutex& mutex, timespec& t);
+
 	void Signal();
 	void Broadcast();
 };

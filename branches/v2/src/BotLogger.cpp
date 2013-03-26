@@ -3,6 +3,9 @@
 
 string BotLogger::SYS = "SYSTEM";
 string BotLogger::DBG = "DEBUG";
+string BotLogger::MOD = "MODULE";
+string BotLogger::CMD = "COMMAND";
+string BotLogger::RAW = "RAWIO";
 
 BotLogger::BotLogger()
 {
@@ -14,7 +17,6 @@ BotLogger::~BotLogger()
 	GetLog("SYSTEM").Put(INFO, "BotLogger: Closing all logs");
 	for (i = loglist.begin(); i != loglist.end(); ++i)
 	{
-		cout << "deleting " << i->first << endl;
 		delete i->second;
 	}
 	return;

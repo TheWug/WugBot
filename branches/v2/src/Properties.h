@@ -5,6 +5,8 @@
 #include <string>
 #include <map>
 
+#include "EventHandler.h"
+
 using namespace std;
 
 class BotCore;
@@ -16,6 +18,7 @@ private:
 	string myfile;
 	map<string, map<string, string> > properties;
 
+	static void PropertyHandler(void * s, EventHandler::Event e);
 public:
 	Properties(string filename, BotCore& b);
 
@@ -35,6 +38,8 @@ public:
 	void SetProperty(string name, string section, vector<int> value);
 	void SetProperty(string name, string section, double value);
 	void SetProperty(string name, string section, vector<double> value);
+
+	void SubscribeToEvents();
 };
 
 #endif

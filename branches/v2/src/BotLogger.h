@@ -1,11 +1,11 @@
 #ifndef _BOT_LOGGER_H_
 #define _BOT_LOGGER_H_
 
-#include "Log.h"
-
 #include <map>
 #include <string>
 #include <iostream>
+
+#include "Log.h"
 
 using namespace std;
 
@@ -22,7 +22,7 @@ public:
 	void CloseLog(string identifier);
 	void RecreateLog(string identifier, string filename);
 
-	static string SYS, DBG;
+	static string SYS, DBG, MOD, CMD, RAW;
 };
 
 #endif

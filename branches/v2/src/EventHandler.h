@@ -7,8 +7,9 @@
 #include <set>
 #include <queue>
 
-#include"BotTime.h"
+#include "BotTime.h"
 #include "Concurrency.h"
+#include "WildcardStringMatcher.h"
 
 using namespace std;
 
@@ -17,9 +18,11 @@ class BotCore;
 class EventHandler
 {
 public:
-	class Event // EventHandler::Event 
+	class Event // EventHandler::Event
 	{
 	public:
+		Event();
+
 		string name;
 		mtime_t timestamp;
 		vector<string> data;
@@ -32,8 +35,8 @@ private:
 	BotCore& bot;
 
 	// handler stuff
-	map<Handler, map<void *, set<string> > > handlermap;
-	map<Handler, map<void *, set<string> > > althandlermap;
+	map<Handler, map<void *, WildcardStringMatcher> > handlermap;
+	map<Handler, map<void *, WildcardStringMatcher> > althandlermap;
 	bool handlerchanged;
 
 	// event queue
@@ -62,12 +65,12 @@ public:
 	~EventHandler();		// destroys instance, which stops distribution thread safely
 
 	// event processing
-	void Subscribe(set<string> subscribeto, Handler handler, void * object);
-	void Unsubscribe(Handler handler, void * object);
+	void Subscribe(set<string> sub_to, Handler handler, void * object);
+	void Unsubscribe(set<string> unsub_from, Handler handler, void * object);
 	void Raise(Event e);
 
 	// helper functions
-	bool IsSubscribed(string subject, set<string> subscriptions);
+	bool IsSubscribed(string subject, WildcardStringMatcher& subscriptions);
 };
 
 #endif

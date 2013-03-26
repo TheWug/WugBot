@@ -22,16 +22,16 @@ NetInterface::NetInterface(BotCore& b) : bot(b)
 
 NetInterface::~NetInterface()
 {
-	Disconnect();
+	close(socket_fd);
 }
 
-NetInterface::ErrorState NetInterface::Connect()
+ErrorState NetInterface::Connect()
 {
 	socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (socket_fd < 0)
 	{
-		bot.BotLog().GetLog(BotLogger::SYS).Put(ERROR, "NetInterface: unable to connect.");
+		bot.BotLog().GetLog(BotLogger::SYS).Put(ERROR, "NetInterface::Connect: unable to connect. (FCNTL)");
 		errno = 0;
 		return M_SOCKET_ERROR;
 	}
@@ -40,7 +40,7 @@ NetInterface::ErrorState NetInterface::Connect()
 
 	if(fcntl(socket_fd, F_SETFL, flags | O_NONBLOCK) < 0)
 	{
-		bot.BotLog().GetLog(BotLogger::SYS).Put(ERROR, "NetInterface: unable to connect.");
+		bot.BotLog().GetLog(BotLogger::SYS).Put(ERROR, "NetInterface::Connect: unable to connect. (FCNTL)");
 		errno = 0;
 		Disconnect();
 		return M_SOCKET_ERROR;
@@ -53,7 +53,7 @@ NetInterface::ErrorState NetInterface::Connect()
 	{
 		if (errno != EINPROGRESS)
 		{
-			bot.BotLog().GetLog(BotLogger::SYS).Put(ERROR, "NetInterface: unable to connect.");
+			bot.BotLog().GetLog(BotLogger::SYS).Put(ERROR, "NetInterface::Connect: unable to connect. (ERRNO)");
 			errno = 0;
 			Disconnect();
 			return M_UNKNOWN_ERROR;
@@ -61,7 +61,7 @@ NetInterface::ErrorState NetInterface::Connect()
 	}
 
 	isconnected = true;
-	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "NetInterface: connection established to " + address + " (" + StringUtil::FromIPAddr(ipaddress) + ")");
+	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "NetInterface::Connect: connection established to " + address + " (" + StringUtil::FromIPAddr(ipaddress) + ")");
 	return M_SUCCESS;
 }
 
@@ -83,6 +83,7 @@ int NetInterface::Send(const char * buffer, int maxsize) // might block? use som
 void NetInterface::Disconnect()
 {
 	isconnected = false;
+	bot.BotLog().GetLog(BotLogger::SYS).Put(INFO, "NetInterface::Disconnect: disconnected from " + address + " (" + StringUtil::FromIPAddr(ipaddress) + ")");
 	close(socket_fd);
 }
 
@@ -93,10 +94,10 @@ bool NetInterface::BindServer(string newserver, int newport)
 	address = newserver;
 	port = newport;
 
-	hostent *hostentry = gethostbyname(address.c_str());
+	hostent * hostentry = gethostbyname(address.c_str());
 	if (hostentry == NULL)
 	{
-		bot.BotLog().GetLog(BotLogger::SYS).Put(WARNING, "NetInterface: could not find host: gethostbyname failed (" + address + ")");
+		bot.BotLog().GetLog(BotLogger::SYS).Put(WARNING, "NetInterface::BindServer: could not find host: gethostbyname failed (" + address + ")");
 		ipaddress = 0;
 		errno = 0;
 		return true; // if error, return true

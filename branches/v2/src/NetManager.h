@@ -24,8 +24,11 @@ private:
 	class NetBlob					// encapsulates various data about an interface
 	{
 	public:
+		NetBlob();				// initializes some stuff
+
 		// shared
 		string netname;				// the interface's identifier (connectionindex[netname] will be the index of this NetBlob in connections)
+		string outerindex;
 
 		// owned by read thread
 		NetInterface * iface;			// this connection
@@ -52,7 +55,7 @@ private:
 		Condition servicelock;			// read thread will block on this condition when it pauses for administrivia, and unlock readmutex
 		vector<pollfd> polllist;		// data required by poll syscall
 
-		bool running;				// running indicator
+		volatile bool running;				// running indicator
 		pthread_t readthread;			// the read thread, responsible for all network input (communicates with the rest of the bot with events)
 	};
 
@@ -68,7 +71,7 @@ private:
 		Semaphore writespending;		// the number of pending writes, a managed atomic integer.  google semaphore
 		Mutex squeuelock;			// the service queue lock
 
-		bool running;				// running indicator
+		volatile bool running;				// running indicator
 		pthread_t writethread;			// the write thread, responsible for all network output (receives write requests as events)
 	};
 
@@ -79,6 +82,7 @@ private:
 
 	vector<NetBlob *> connections;			// list of connections
 	map<string, int> connectionindex;		// translator table from external to internal ids
+	int nextavail;					// the next available id
 
 	Mutex connectionlock;				// this mutex is locked whenever the event thread is accessing the connection table,
 	Mutex servicemutex;				// this mutex is locked whenever something... its not used yet and i dont remember why i added it
@@ -103,8 +107,8 @@ private:
 	static void ConnectionHandler(void * self, EventHandler::Event e);	// Handles incoming events signaling or instructing changes to network interfaces
 
 	// unsorted
+	void InitialAutoconnect();						// called upon receiving PROP_READY (indicating properties have been loaded), connects to all autoconnect networks
 	void AddMessageToWriteQueue(string network, string line);		// Receives an event, and writes it to the write queue of some interface to be processed by write thread
-	string CreateIRCLine(vector<string>& components);			// Takes the arguments of an event and formats them into an IRC line
 
 	void PauseReadWrite();				// pause reader and writer threads
 	void UnpauseReadWrite();			// don't forget to unpause them when you're done or everything ever will explode
@@ -117,6 +121,9 @@ public:
 	void Stop();					// stops component threads
 
 	int GetConnectionIndex(string network);		// looks up connection interface index from external id
+	string GetConnectionName(string network);
+
+	void SubscribeToEvents();
 };
 
 #endif

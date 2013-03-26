@@ -14,6 +14,15 @@ using namespace std;
 class BotCore;
 struct pollfd;
 
+enum ErrorState
+{
+	M_SUCCESS,
+	M_SOCKET_ERROR,
+	M_COULDNT_FIND_HOST,
+	M_COULD_NOT_CONNECT,
+	M_UNKNOWN_ERROR
+};
+
 class NetInterface
 {
 private:
@@ -33,15 +42,6 @@ private:
 	bool isconnected;
 
 public:
-	enum ErrorState
-	{
-		M_SUCCESS,
-		M_SOCKET_ERROR,
-		M_COULDNT_FIND_HOST,
-		M_COULD_NOT_CONNECT,
-		M_UNKNOWN_ERROR
-	};
-
 	NetInterface(BotCore& b);
 	~NetInterface();
 

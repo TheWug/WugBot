@@ -76,6 +76,21 @@ Semaphore& Semaphore::operator-- ()
 	return (*this);
 }
 
+Semaphore& Semaphore::operator-= (timespec& t)
+{
+	int i, j;
+	i = errno;
+	j = sem_timedwait(&semaphore, &t);
+	if (j != 0 && errno != ETIMEDOUT)
+	{
+		j = errno;
+		errno = i;
+		throw j;
+	}
+	errno = i;
+	return (*this);
+}
+
 Semaphore::operator int()
 {
 	int i, j, k = -1;
@@ -105,6 +120,12 @@ void Condition::Wait(Mutex& mutex)
 {
 	int i = pthread_cond_wait(&condition, mutex.Get());
 	if (i != 0) throw i;
+}
+
+void Condition::TimedWait(Mutex &mutex, timespec &t)
+{
+	int i = pthread_cond_timedwait(&condition, mutex.Get(), &t);
+	if (i != 0 && i != ETIMEDOUT) throw i;
 }
 
 void Condition::Signal()
